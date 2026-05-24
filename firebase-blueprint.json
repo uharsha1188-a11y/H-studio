@@ -1,0 +1,191 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user profile.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "phoneNum": { "type": "string" },
+        "allowDirectMessages": { "type": "boolean" }
+      },
+      "required": ["uid", "email", "name"]
+    },
+    "Contact": {
+      "title": "Contact",
+      "description": "A contact for a user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" }
+      },
+      "required": ["uid", "email", "name"]
+    },
+    "Room": {
+      "title": "Room",
+      "description": "A chat room created by a host.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "description": "Long digits-only join code or 'direct' for direct messages." },
+        "hostName": { "type": "string" },
+        "status": { "type": "string", "enum": ["waiting", "active", "closed"] },
+        "hostId": { "type": "string" },
+        "isDirect": { "type": "boolean" },
+        "participantIds": { "type": "array", "items": { "type": "string" } },
+        "typing": { "type": "object", "additionalProperties": { "type": "number" } }
+      },
+      "required": ["code", "hostName", "status", "hostId"]
+    },
+    "Message": {
+      "title": "Message",
+      "description": "A message sent within a room.",
+      "type": "object",
+      "properties": {
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["senderId", "senderName", "text", "timestamp"]
+    },
+    "GlobalSettings": {
+      "title": "Settings",
+      "description": "Global app settings",
+      "type": "object",
+      "properties": {
+        "betaFeaturesWorldwide": { "type": "boolean" }
+      }
+    },
+    "HMailUser": {
+      "title": "HMailUser",
+      "description": "An HMail user profile.",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "domain": { "type": "string" },
+        "passwordHash": { "type": "string" },
+        "isITAdmin": { "type": "boolean" },
+        "createdByAdmin": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["username", "passwordHash"]
+    },
+    "HMailRegisteredDomain": {
+      "title": "HMailRegisteredDomain",
+      "description": "An HMail registered company domain.",
+      "type": "object",
+      "properties": {
+        "registeredBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["registeredBy"]
+    },
+    "HMailMessage": {
+      "title": "HMailMessage",
+      "description": "An HMail secure email message.",
+      "type": "object",
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "subject": { "type": "string" },
+        "body": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["from", "to", "subject", "body"]
+    },
+    "HMeetSession": {
+      "title": "HMeetSession",
+      "description": "An active Hmeet audio/video call session.",
+      "type": "object",
+      "properties": {
+        "callerUid": { "type": "string" },
+        "callerPhone": { "type": "string" },
+        "callerName": { "type": "string" },
+        "receiverUid": { "type": "string" },
+        "receiverPhone": { "type": "string" },
+        "status": { "type": "string", "enum": ["ringing", "accepted", "rejected", "ended"] },
+        "type": { "type": "string", "enum": ["audio", "video"] },
+        "createdAt": { "type": "number" },
+        "callerSignal": { "type": "object" },
+        "receiverSignal": { "type": "object" },
+        "callerCandidates": { "type": "array" },
+        "receiverCandidates": { "type": "array" }
+      },
+      "required": ["callerUid", "callerPhone", "callerName", "receiverUid", "receiverPhone", "status", "type", "createdAt"]
+    },
+    "HMailSsoSettings": {
+      "title": "HMailSsoSettings",
+      "description": "HMail Single Sign-On Configuration.",
+      "type": "object",
+      "properties": {
+        "gatewayEnabled": { "type": "boolean" },
+        "brotherAppAuthorized": { "type": "boolean" },
+        "brotherAppUrl": { "type": "string" },
+        "lastUpdated": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "authorizedAt": { "type": "string" },
+        "authorizedBy": { "type": "string" }
+      }
+    },
+    "BannedEmail": {
+      "title": "BannedEmail",
+      "description": "Banned email records.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string" },
+        "bannedAt": { "type": "string" },
+        "bannedBy": { "type": "string" }
+      },
+      "required": ["email"]
+    }
+  },
+  "firestore": {
+    "/settings/{settingId}": {
+      "schema": "GlobalSettings",
+      "description": "Global Settings"
+    },
+    "/banned_emails/{banId}": {
+      "schema": "BannedEmail",
+      "description": "HMail banned email list."
+    },
+    "/hmail_sso_settings/{settingId}": {
+      "schema": "HMailSsoSettings",
+      "description": "HMail Single Sign-On Configuration."
+    },
+    "/hmail_users/{username}": {
+      "schema": "HMailUser",
+      "description": "HMail user store."
+    },
+    "/hmail_registered_domains/{domain}": {
+      "schema": "HMailRegisteredDomain",
+      "description": "HMail registered company domains."
+    },
+    "/hmail_messages/{msgId}": {
+      "schema": "HMailMessage",
+      "description": "Secure email messages."
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Global user directory."
+    },
+    "/users/{userId}/contacts/{contactId}": {
+      "schema": "Contact",
+      "description": "User's personal contacts."
+    },
+    "/rooms/{roomId}": {
+      "schema": "Room",
+      "description": "Collection of chat rooms."
+    },
+    "/rooms/{roomId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Subcollection of messages for a specific room."
+    },
+    "/hmeet_sessions/{sessionId}": {
+      "schema": "HMeetSession",
+      "description": "Active Hmeet real-time call and WebRTC signaling sessions."
+    }
+  }
+}

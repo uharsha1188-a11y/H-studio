@@ -1,0 +1,6 @@
+{
+  "name": "H chat",
+  "description": "A secure, premium, real-time chat app with digit-code room joining and encrypted history.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,231 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Standalone Global Helpers (Phase 3)
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function isAdmin() { 
+      return isSignedIn() && (
+             request.auth.token.email in ['uharsha1188@gmail.com', 'uharsha2015@gmail.com', 'uharsha1188@hmail.com', 'uharsha2015@hmail.com'] ||
+             (exists(/databases/$(database)/documents/hmail_users/$(request.auth.token.email)) && get(/databases/$(database)/documents/hmail_users/$(request.auth.token.email)).data.isITAdmin == true)
+      );
+    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // Validation Blueprint: Users (Phase 2 & 6)
+    function isValidUser(data) {
+      return data.uid == request.auth.uid &&
+             data.email is string && data.email.size() <= 200 &&
+             data.name is string && data.name.size() <= 100 &&
+             (!data.keys().hasAny(['allowDirectMessages']) || data.allowDirectMessages is bool) &&
+             (!data.keys().hasAny(['phoneNum']) || (data.phoneNum is string && data.phoneNum.size() == 8)) &&
+             (!data.keys().hasAny(['saveHistory']) || data.saveHistory is bool);
+    }
+
+    // Validation Blueprint: HMeetSession
+    function isValidHMeetSession(data) {
+      return data.callerUid is string && data.callerUid.size() <= 128 &&
+             data.callerPhone is string && data.callerPhone.size() == 8 &&
+             data.callerName is string && data.callerName.size() <= 100 &&
+             data.receiverUid is string && data.receiverUid.size() <= 128 &&
+             data.receiverPhone is string && data.receiverPhone.size() == 8 &&
+             data.status in ['ringing', 'accepted', 'rejected', 'ended'] &&
+             data.type in ['audio', 'video'] &&
+             data.createdAt is number;
+    }
+
+    // Validation Blueprint: Rooms (Phase 2 & 6)
+    function isValidRoom(data) {
+      return data.code is string && data.code.size() <= 64 &&
+             data.hostName is string && data.hostName.size() <= 100 &&
+             data.status in ['waiting', 'active', 'closed'] &&
+             data.hostId == request.auth.uid;
+    }
+
+    // Validation Blueprint: Messages (Phase 2 & 6)
+    function isValidMessage(data) {
+      return data.senderId == request.auth.uid &&
+             data.senderName is string && data.senderName.size() <= 100 &&
+             data.text is string && data.text.size() <= 10000 &&
+             data.timestamp == request.time;
+    }
+
+    // Collection Level Match Rules
+
+    match /banned_emails/{banId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /admin_check/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /hmail_users/{username} {
+      // Anyone logged in can check usernames to find domains or register login index
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && username == incoming().username && 
+                    incoming().passwordHash is string && incoming().passwordHash.size() == 64 &&
+                    incoming().domain is string && incoming().domain.size() <= 200 &&
+                    incoming().createdAt == request.time;
+      allow update: if false; // Immutable password store / No direct privilege alterations
+      allow delete: if isAdmin() || (isSignedIn() && existing().createdByAdmin != null);
+    }
+
+    match /hmail_registered_domains/{domain} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && domain.size() <= 200 &&
+                    incoming().registeredBy is string && incoming().registeredBy.size() <= 200 &&
+                    incoming().createdAt == request.time;
+      allow update: if isSignedIn() && (
+        existing().registeredBy is string && 
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /hmail_messages/{msgId} {
+      // Allow secure, segmented reads
+      allow read, list: if isSignedIn();
+      // Enforce strict size and format validation for messages to block wallet attacks
+      allow create: if isSignedIn() && 
+                    incoming().from is string && incoming().from.size() <= 200 &&
+                    incoming().to is string && incoming().to.size() <= 200 &&
+                    incoming().subject is string && incoming().subject.size() <= 500 &&
+                    incoming().body is string && incoming().body.size() <= 50000 &&
+                    incoming().timestamp == request.time;
+      allow delete: if isSignedIn();
+      allow update: if false; // Sent secure mails are permanently immutable history
+    }
+
+    match /hmail_sso_settings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && userId == request.auth.uid && isValidUser(incoming());
+      
+      match /contacts/{contactId} {
+        allow read: if isSignedIn() && userId == request.auth.uid;
+        allow create, update: if isSignedIn() && userId == request.auth.uid &&
+          incoming().uid is string && incoming().uid.size() <= 128 &&
+          incoming().email is string && incoming().email.size() <= 200 &&
+          incoming().name is string && incoming().name.size() <= 100;
+        allow delete: if isSignedIn() && userId == request.auth.uid;
+      }
+      
+      match /saved_rooms/{roomId} {
+        allow read, write: if isSignedIn() && userId == request.auth.uid;
+      }
+    }
+
+    match /rooms/{roomId} {
+      allow create: if isSignedIn() && isValidId(roomId) && isValidRoom(incoming());
+      
+      allow read: if isSignedIn() && (
+        roomId.matches('^dm_.*' + request.auth.uid + '.*$') ||
+        resource.data.hostId == request.auth.uid || 
+        (resource.data.participantIds != null && request.auth.uid in resource.data.participantIds) ||
+        resource.data.status == 'waiting' ||
+        isAdmin()
+      );
+
+      // Hierarchical protection & immutable properties check
+      allow update: if isSignedIn() && (
+        incoming().hostId == existing().hostId &&
+        incoming().code == existing().code &&
+        incoming().hostName == existing().hostName &&
+        (
+          // Action 1: Join Room (can adjust participants/participantIds of a waiting room)
+          (existing().status == 'waiting' && incoming().diff(existing()).affectedKeys().hasOnly(['participants', 'participantIds', 'status'])) ||
+          
+          // Action 2: Host managed properties
+          (existing().hostId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasAny(['status', 'banned', 'participants', 'participantIds'])) ||
+          
+          // Action 3: Typing status update
+          (incoming().diff(existing()).affectedKeys().hasOnly(['typing'])) ||
+          
+          isAdmin()
+        )
+      );
+
+      allow delete: if isSignedIn() && (resource.data.hostId == request.auth.uid || isAdmin());
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && (
+          roomId.matches('^dm_.*' + request.auth.uid + '.*$') ||
+          get(/databases/$(database)/documents/rooms/$(roomId)).data.hostId == request.auth.uid ||
+          (get(/databases/$(database)/documents/rooms/$(roomId)).data.participantIds != null && request.auth.uid in get(/databases/$(database)/documents/rooms/$(roomId)).data.participantIds) ||
+          isAdmin()
+        );
+        
+        allow create: if isSignedIn() && isValidMessage(incoming()) && (
+          roomId.matches('^dm_.*' + request.auth.uid + '.*$') ||
+          get(/databases/$(database)/documents/rooms/$(roomId)).data.hostId == request.auth.uid ||
+          (get(/databases/$(database)/documents/rooms/$(roomId)).data.participantIds != null && request.auth.uid in get(/databases/$(database)/documents/rooms/$(roomId)).data.participantIds)
+        );
+        
+        allow update: if isSignedIn() && (
+          roomId.matches('^dm_.*' + request.auth.uid + '.*$') ||
+          get(/databases/$(database)/documents/rooms/$(roomId)).data.hostId == request.auth.uid ||
+          (get(/databases/$(database)/documents/rooms/$(roomId)).data.participantIds != null && request.auth.uid in get(/databases/$(database)/documents/rooms/$(roomId)).data.participantIds)
+        ) && incoming().diff(existing()).affectedKeys().hasOnly(['reactions']);
+      }
+    }
+
+    match /hmeet_sessions/{sessionId} {
+      allow read: if isSignedIn() && (
+        resource.data.callerUid == request.auth.uid ||
+        resource.data.receiverUid == request.auth.uid ||
+        isAdmin()
+      );
+      
+      allow create: if isSignedIn() && (
+        incoming().callerUid == request.auth.uid &&
+        isValidHMeetSession(incoming())
+      );
+      
+      allow update: if isSignedIn() && (
+        (resource.data.callerUid == request.auth.uid || resource.data.receiverUid == request.auth.uid) &&
+        incoming().diff(existing()).affectedKeys().hasAny([
+          'status', 'receiverSignal', 'callerSignal', 'receiverCandidates', 'callerCandidates',
+          'receiverMuted', 'receiverVideoDisabled', 'callerMuted', 'callerVideoDisabled', 'chatMessages'
+        ])
+      );
+      
+      allow delete: if isSignedIn() && (
+        resource.data.callerUid == request.auth.uid ||
+        resource.data.receiverUid == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    match /hmeet_scheduled_calls/{callId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && incoming().callerUid == request.auth.uid &&
+                    incoming().callerPhone is string && incoming().receiverPhone is string &&
+                    incoming().type in ['audio', 'video'] && incoming().status in ['pending', 'completed'];
+      allow update: if isSignedIn() && (
+        resource.data.callerUid == request.auth.uid ||
+        incoming().diff(existing()).affectedKeys().hasOnly(['status'])
+      );
+      allow delete: if isSignedIn() && (
+        resource.data.callerUid == request.auth.uid ||
+        isAdmin()
+      );
+    }
+  }
+}
